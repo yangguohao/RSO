@@ -5,7 +5,7 @@ from sklearn.metrics import matthews_corrcoef, f1_score, accuracy_score
 from transformers import get_cosine_schedule_with_warmup
 
 import wandb
-from optimizer_cp import AdamW, SGD
+from optimizer_cp import AdamW, SGD, Flora, RandomizedSGD, RandomizedGalore, RandomizedApollo
 
 torch.set_printoptions(precision=4)
 
@@ -27,6 +27,26 @@ def centralized_glue(model, dataloader, val_dataloader, args):
                             interval=args.interval,
                             optimizer_states=args.optimizer_states,
                             args=args)
+    elif args.method == "primer":
+        if args.optim == 'AdamW':
+            optimizer = RandomizedGalore(model.named_parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                                         interval=args.interval,
+                                         args=args)
+        elif args.optim == 'Apollo':
+            optimizer = RandomizedApollo(model.named_parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                                         interval=args.interval,
+                                         args=args)
+        elif 'SGD' in args.optim:
+            optimizer = RandomizedSGD(model.named_parameters(), lr=args.lr,
+                                      momentum=0.9 if args.optim == 'SGDM' else 0,
+                                      weight_decay=args.weight_decay,
+                                      args=args)
+    elif args.method == "flora":
+        optimizer = Flora(model.named_parameters(), lr=args.lr, interval=args.interval,
+                          weight_decay=args.weight_decay,
+                          scaling_factor=(args.lora_alpha / args.lora_r),
+                          optimizer_states=args.optimizer_states,
+                          args=args)
     else:
         if args.optim == 'AdamW':
             optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -53,7 +73,9 @@ def centralized_glue(model, dataloader, val_dataloader, args):
             loss = model(**{k: v.to(device) for k, v in data.items()}).loss
             loss.backward()
 
-            optimizer.step()
+            optimizer.step(
+                closure=lambda: model(**{k: v.to(device) for k, v in data.items()}).loss if args.method == 'primer'
+                else None)
             scheduler.step()
             optimizer.zero_grad()
 
@@ -154,4 +176,3 @@ def evaluate_model(model, dataloader, args, r, max_metric1, max_metric2):
         )
 
     return max_metric1, max_metric2
-

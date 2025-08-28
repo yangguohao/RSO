@@ -7,7 +7,7 @@ import wandb
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForSequenceClassification, RobertaConfig
+from transformers import AutoModelForSequenceClassification
 
 from train_eval_cp import centralized_glue
 from data_utils_cp import load_and_preprocess_data
@@ -70,24 +70,18 @@ def centralized_learning(task):
     base_model = AutoModelForSequenceClassification.from_pretrained(
         args.model,
         num_labels=num_labels
-        # config=RobertaConfig.from_pretrained(
-        #     "roberta-base",
-        #     attention_probs_dropout_prob=0.0,
-        #     hidden_dropout_prob=0.0,
-        #     classifier_dropout=0.0,  # 有的任务模型支持这个
-        #     num_labels=num_labels,
-        # )
     )
 
     base_model.to(args.device)
     if 'rso' in args.method:
         model = create_RSO_model(base_model, args)
+    elif args.method == 'flora':
+        model = base_model
     else:
         if args.method == 'fft':
             args.lora_r = args.lora_alpha = 0
         model = create_peft_model(base_model, args)
 
-    # train_rso(model, client_dataloaders, val_dataloader, args)
     centralized_glue(model, client_dataloaders, val_dataloader, args)
 
 
