@@ -672,7 +672,7 @@ class RandomizedGalore(Optimizer):
 class Flora(Optimizer):
     def __init__(
             self,
-            named_params,
+            params,
             lr: Union[float, torch.Tensor] = 1e-3,
             scaling_factor: float = 2.,
             betas: Tuple[float, float] = (0.9, 0.999),
@@ -682,18 +682,12 @@ class Flora(Optimizer):
             optimizer_states="reset",
             args=None
     ):
-        names = []
-        params = []
-        for n, p in named_params:
-            names.append(n)
-            params.append(p)
 
         self.interval = interval
         self.optimizer_states = optimizer_states
         self.args = args
         defaults = dict(
             lr=lr,
-            names=names,
             scaling_factor=scaling_factor,
             betas=betas,
             eps=eps,
@@ -722,7 +716,7 @@ class Flora(Optimizer):
                 if p.grad is None:
                     continue
 
-                compress = True if "rank" not in group else False
+                compress = True if "rank" in group else False
                 state = self.state[n]
 
                 if compress:

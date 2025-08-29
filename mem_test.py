@@ -7,6 +7,8 @@ import torchvision.models
 from datetime import datetime
 from torch.autograd.profiler import record_function
 from transformers import AutoModelForSequenceClassification
+from optimizer_cp import AdamW, Flora
+from models_cp import create_RSO_model, create_peft_model
 
 
 def test_transformer():
@@ -49,8 +51,8 @@ def test_profiler():
     def train(num_iter=5, device="cuda:0", warmup=False):
         def trace_handler(prof: torch.profiler.profile):
             # Prefix for file names.
-            timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-            file_name = f"./visual_mem"
+            # timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+            file_name = f"./mem_results/visual_mem_flora"
 
             # Construct the trace file.
             # prof.export_chrome_trace(f"{file_name}.json.gz")
@@ -70,11 +72,46 @@ def test_profiler():
             #     num_labels=num_labels,
             # )
         )
+
+        class args:
+            lora_r = 4
+            lora_alpha = 8
+            lora_dropout = 0
+            device = "cuda:0"
+            rslora = False
+
         model.to(device)
+        # model = create_RSO_model(model, args)
+        # model = create_peft_model(model, args)
+
         x = torch.randint(0, 128, size=(32, 128), device=device)
         model.train()
         labels = torch.randint(0, 2, size=(32,), device=device)
-        optimizer = torch.optim.AdamW(model.parameters())
+        # optimizer = torch.optim.AdamW(model.parameters())
+        # optimizer = AdamW(model.named_parameters(), args=args)
+        compress_params = []
+        compress_names = []
+        params = []
+        names = []
+        for k, v in model.named_parameters():
+            if any(x in k for x in ["query", "value", "key",
+                                    "intermediate.dense", "output.dense"]) and v.ndim == 2:
+                compress_params.append(v)
+                compress_names.append(k)
+
+            else:
+                params.append(v)
+                names.append(k)
+
+        optimizer = Flora([
+            {"params": params,
+             "names": names},
+            {
+                "params": compress_params,
+                "names": compress_names,
+                "rank": args.lora_r,
+            },
+        ], args=args)
         with torch.profiler.profile(
                 activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=0, warmup=0, active=5, repeat=1),
